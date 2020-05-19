@@ -1,0 +1,106 @@
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.utils import check_random_state
+from sklearn.utils.validation import check_array, check_is_fitted
+from sklearn.utils.random import sample_without_replacement
+import numpy as np
+
+
+class heartrate(BaseEstimator, TransformerMixin):
+    """heartrate"""
+    def __init__(self, NfeaMax=None,
+                 is_moving=True,
+                 moving_method='average',
+                 Nwins=100,
+                 is_correlation=True,
+                 timeint_start=1,
+                 timeint_dt=10,
+                 timeint_last=1000):
+        self.NfeaMax = NfeaMax
+        self.is_moving = is_moving
+        self.moving_method = moving_method
+        self.Nwins = Nwins
+        self.is_correlation = is_correlation
+        self.timeint_start = timeint_start
+        self.timeint_dt = timeint_dt
+        self.timeint_last = timeint_last
+
+    def fit(self, X, y=None):
+        print("fit")
+        print(X.shape)
+        print("    Nothing is done here")
+        return self
+
+    def data_moving(self, X):
+        Nwins = self.Nwins
+        moving_method = self.moving_method
+        n_samples, n_features = X.shape
+        moving = np.zeros((n_samples, n_features-(Nwins-1)), dtype="float")
+        ii = -1;
+        #print(moving_method)
+        for i in np.arange((Nwins-1), n_features):
+            ii = ii + 1;
+            indi = i-(Nwins-1)
+            indf = i+1
+            if moving_method == 'average':
+                moving[:, ii] = np.sum(X[:, indi:indf], axis=1)/Nwins
+            elif moving_method == 'median':
+                moving[:, ii] = np.median(X[:, indi:indf], axis=1)
+        return moving
+
+    def data_analyze(self, X):
+        n_samples, n_features = X.shape
+        N_Xlast = np.zeros((n_samples, ), dtype="int")
+        X_mean = np.zeros((n_samples, ), dtype="float")
+        X_std = np.zeros((n_samples, ), dtype="float")
+        for i in np.arange(n_samples):
+            train = X[i,:]
+            for itr in np.arange(n_features-1, 1, -1):
+                if train[itr] != 0.0:
+                    N_Xlast[i] = itr
+                    break
+            train = train[0:(N_Xlast[i]+1)]
+            X_mean[i] = np.mean(train);
+            X_std[i] = np.std(train);
+        return N_Xlast, X_mean, X_std
+
+    def transform(self, X, y=None):
+        print("transform")
+        print(X.shape)
+        if self.NfeaMax is not None:
+            X = X[:, 0:self.NfeaMax]
+        print(X.shape)
+        if self.is_moving is True:
+            print("    is_moving")
+            X = self.data_moving(X)
+        #print(X)
+        print(X.shape)
+        if self.is_correlation is True:
+            print("    is_correlation")
+            interval = np.arange(self.timeint_start,
+                                 self.timeint_last+1,
+                                 self.timeint_dt)
+            N_Xlast, X_mean, X_std = self.data_analyze(X)
+            #print(N_Xlast)
+            #print(X_mean)
+            #print(X_std)
+            n_samples, n_features = X.shape
+            for i in np.arange(n_samples):
+                irange = np.arange(N_Xlast[i]+1)
+                X[i,irange] = X[i,irange] - \
+                              (X_mean[i] + np.zeros((len(irange), ),
+                                                    dtype='float'))
+            #print(X)
+            X_new = np.zeros((n_samples, len(interval)), dtype="float")
+            ii = -1;
+            for inte in interval:
+                ii = ii + 1;
+                if np.remainder(ii,500) == 0:
+                    print(inte)
+                norm = (N_Xlast+1-inte).astype('float')*X_std**2
+                X_new[:,ii] = np.sum(X[:, 0:(n_features-inte)]* \
+                                     X[:, inte:n_features],
+                                     axis=1)/norm
+            X = X_new
+            #print(X)
+            print(X.shape)
+        return X
